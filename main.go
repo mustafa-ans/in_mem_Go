@@ -116,7 +116,7 @@ func main() {
         }
 
         var req struct {
-            Command string `json:"command"`
+            Command string `json:"command"` //struct tag
         }
         if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
             w.WriteHeader(http.StatusBadRequest)

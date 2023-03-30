@@ -14,6 +14,13 @@ type datastore struct {
     data map[string]*dataValue
     mu   sync.RWMutex
 }
+
+type dataValue struct {
+    value    string
+    expTime  int64 // Expiry time in Unix timestamp format
+    isExists bool  // Used to check existence of key for conditional set operations
+	queue    []string
+}
 func parseExpiry(expiry string) (int64, error) {
     unit := string(expiry[len(expiry)-1])
     duration := expiry[:len(expiry)-1]
@@ -34,13 +41,6 @@ func parseExpiry(expiry string) (int64, error) {
     default:
         return 0, fmt.Errorf("invalid expiry unit")
     }
-}
-
-type dataValue struct {
-    value    string
-    expTime  int64 // Expiry time in Unix timestamp format
-    isExists bool  // Used to check existence of key for conditional set operations
-	queue    []string
 }
 
 func (d *datastore) setValue(key, value string, expTime int64, isExists bool) error {

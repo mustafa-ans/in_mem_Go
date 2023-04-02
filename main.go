@@ -99,9 +99,11 @@ func (d *datastore) getAll() map[string]string {
 
     result := make(map[string]string)
     for key, value := range d.data {
-        if value.expTime == 0 || value.expTime > time.Now().Unix() {
-            result[key] = value.value
-        }
+        if len(value.queue) > 0 {
+			result[key] = strings.Join(value.queue, ", ")
+		} else {
+			result[key] = value.value
+		}
     }
     return result
 }

@@ -8,6 +8,9 @@ import (
     "sync"
     "time"
 	"strconv"
+    "go/ast"
+    "go/token"
+    "go/parser"
 )
 
 type datastore struct {
@@ -44,6 +47,20 @@ func parseExpiry(expiry string) (int64, error) {
 }
 
 func (d *datastore) setValue(key, value string, expTime int64, isExists bool) error {
+    // Tokenize the input values
+    fset := token.NewFileSet()
+    expr, err := parser.ParseExpr(fmt.Sprintf("%q", key+" "+value))
+    if err != nil {
+        return err
+    }
+    ast.Inspect(expr, func(n ast.Node) bool {
+        if n != nil {
+            // Remove the computation of f if it is not needed
+            fmt.Printf("Token: %s, Position: %v\n", fset.Position(n.Pos()), n)
+        }
+        return true
+    })
+
     d.mu.Lock()
     defer d.mu.Unlock()
 
@@ -91,7 +108,6 @@ func (d *datastore) qPush(key string, values ...string) error {
 
     return nil
 }
-
 // getall
 func (d *datastore) getAll() map[string]string {
     d.mu.RLock()
@@ -207,8 +223,7 @@ func main() {
         w.WriteHeader(http.StatusOK)
         fmt.Fprintf(w, `{"value": "%s"}`, value)
     })
-
-	http.HandleFunc("/qpush", func(w http.ResponseWriter, r *http.Request) {
+    http.HandleFunc("/qpush", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -250,8 +265,6 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"message": "values added to queue"}`)
 	})
-	
-
 	// get all
 	http.HandleFunc("/getall", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {

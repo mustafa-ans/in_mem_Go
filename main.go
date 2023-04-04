@@ -108,6 +108,25 @@ func (d *datastore) qPush(key string, values ...string) error {
 
     return nil
 }
+
+func (d *datastore) qPop(key string) (string, bool) {
+    d.mu.Lock()
+    defer d.mu.Unlock()
+
+    if _, ok := d.data[key]; !ok {
+        return "", false
+    }
+
+    if len(d.data[key].queue) == 0 {
+        return "", false
+    }
+
+    value := d.data[key].queue[0]
+    d.data[key].queue = d.data[key].queue[1:]
+
+    return value, true
+}
+
 // getall
 func (d *datastore) getAll() map[string]string {
     d.mu.RLock()
@@ -265,6 +284,42 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"message": "values added to queue"}`)
 	})
+
+    //qpop
+        http.HandleFunc("/qpop", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != "POST" {
+            w.WriteHeader(http.StatusMethodNotAllowed)
+            return
+        }
+    
+        type Command struct {
+            Cmd  string `json:"command"`
+            Key  string `json:"key"`
+        }
+    
+        var req Command
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            w.WriteHeader(http.StatusBadRequest)
+            fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
+            return
+        }
+    
+        if req.Cmd != "QPOP" {
+            w.WriteHeader(http.StatusBadRequest)
+            fmt.Fprint(w, `{"error": "invalid command"}`)
+            return
+        }
+    
+        value, ok := data.qPop(req.Key)
+        if !ok {
+            w.WriteHeader(http.StatusNotFound)
+            fmt.Fprint(w, `{"error": "queue not found or empty"}`)
+            return
+        }
+    
+        w.WriteHeader(http.StatusOK)
+        fmt.Fprintf(w, `{"value": "%s"}`, value)
+    })
 	// get all
 	http.HandleFunc("/getall", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {

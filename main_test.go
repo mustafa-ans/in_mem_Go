@@ -9,7 +9,7 @@ import (
 func TestGetValue(t *testing.T) {
     data := &datastore{data: make(map[string]*dataValue)}
 
-    // Test for getting an existing key
+    // existing key
     key := "test-key"
     value := "test-value"
     expTime := time.Now().Add(time.Hour).Unix()
@@ -22,7 +22,7 @@ func TestGetValue(t *testing.T) {
         t.Errorf("getValue(%q) = %q, want %q", key, res, value)
     }
 
-    // Test for getting an expired key
+    // expired key
     key = "expired-key"
     value = "expired-value"
     expTime = time.Now().Add(-time.Hour).Unix()
@@ -32,7 +32,7 @@ func TestGetValue(t *testing.T) {
         t.Errorf("getValue(%q) did not return an error for an expired key", key)
     }
 
-    // Test for getting a non-existent key
+    // non-existent key
     key = "non-existent-key"
     _, err = data.getValue(key)
     if err == nil {

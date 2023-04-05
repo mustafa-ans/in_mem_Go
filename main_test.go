@@ -39,6 +39,19 @@ func TestGetValue(t *testing.T) {
         t.Errorf("getValue(%q) did not return an error for a non-existent key", key)
     }
 
+    // Test for getting a key with unexpected value
+    key = "unexpected-value-key"
+    value = "unexpected-value"
+    expTime = time.Now().Add(time.Hour).Unix()
+    data.setValue(key, value, expTime, false)
+    res, err = data.getValue(key)
+    if err != nil {
+        t.Errorf("getValue(%q) failed: %s", key, err)
+    }
+    if res != "expected-value" { // deliberately using wrong expected value here
+        t.Errorf("getValue(%q) = %q, want %q", key, res, "expected-value")
+    }
+
 }
 
 func benchmarkQPush(b *testing.B, numValues int) {

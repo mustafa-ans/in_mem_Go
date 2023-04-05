@@ -1,37 +1,38 @@
-package main_test
+package main
 
 import (
-    "fmt"
-    "time"
+    "strconv"
+    "testing"
 )
 
-func BenchmarkQPop(qpop func(key string, valChan chan string, okChan chan bool)) {
-    // initialize test data
-    data := &datastore{
-        data: map[string]*dataValue{
-            "test1": &dataValue{
-                value: "value1",
-            },
-            "test2": &dataValue{
-                value: "value2",
-                queue: []string{"value3", "value4", "value5"},
-            },
-        },
+func benchmarkQPush(b *testing.B, numValues int) {
+    data := &datastore{data: make(map[string]*dataValue)}
+    key := "testkey"
+
+    // Generate values
+    values := make([]string, numValues)
+    for i := 0; i < numValues; i++ {
+        values[i] = strconv.Itoa(i)
     }
 
-    // start the benchmark
-    numOps := 100000
-    start := time.Now()
-    for i := 0; i < numOps; i++ {
-        key := fmt.Sprintf("test%d", i%2+1)
-        valChan := make(chan string)
-        okChan := make(chan bool)
-        go qpop(key, valChan, okChan)
-        <-valChan
-        <-okChan
+    // Run benchmark
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        err := data.qPush(key, values...)
+        if err != nil {
+            b.Fatal(err)
+        }
     }
-    elapsed := time.Since(start)
+}
 
-    // print benchmark results
-    fmt.Printf("BenchmarkQPop: %d operations in %s, %f ops/sec\n", numOps, elapsed, float64(numOps)/elapsed.Seconds())
+func BenchmarkQPush10(b *testing.B) {
+    benchmarkQPush(b, 10)
+}
+
+func BenchmarkQPush100(b *testing.B) {
+    benchmarkQPush(b, 100)
+}
+
+func BenchmarkQPush1000(b *testing.B) {
+    benchmarkQPush(b, 1000)
 }

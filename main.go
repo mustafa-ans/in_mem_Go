@@ -82,6 +82,7 @@ func main() {
         w.WriteHeader(http.StatusCreated)
         fmt.Fprintf(w, `{"message": "key set successfully"}`)
     })
+
 	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
         if r.Method != "GET" {
             w.WriteHeader(http.StatusMethodNotAllowed)
@@ -109,6 +110,7 @@ func main() {
         w.WriteHeader(http.StatusOK)
         fmt.Fprintf(w, `{"value": "%s"}`, value)
     })
+    
     http.HandleFunc("/qpush", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)

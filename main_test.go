@@ -45,13 +45,13 @@ func benchmarkQPush(b *testing.B, numValues int) {
     data := &datastore{data: make(map[string]*dataValue)}
     key := "testkey"
 
-    // Generate values
+    // values
     values := make([]string, numValues)
     for i := 0; i < numValues; i++ {
         values[i] = strconv.Itoa(i)
     }
 
-    // Run benchmark
+    // to push values
     b.ResetTimer()
     for i := 0; i < b.N; i++ {
         err := data.qPush(key, values...)

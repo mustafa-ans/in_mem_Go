@@ -45,7 +45,7 @@ func (d *datastore) setValue(key, value string, expTime int64, isExists bool) er
     }
     ast.Inspect(expr, func(n ast.Node) bool {
         if n != nil {
-            // Remove the computation of f if it is not needed
+            // ops on fset here
             fmt.Printf("Token: %s, Position: %v\n", fset.Position(n.Pos()), n)
         }
         return true

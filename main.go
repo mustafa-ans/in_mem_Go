@@ -21,9 +21,11 @@ type datastore struct {
 type dataValue struct {
     value    string
     expTime  int64 // Expiry time in Unix timestamp format
-    isExists bool  // Used to check existence of key for conditional set operations
-	queue    []string
+    isExists bool  // Used to check existence of key for conditional set operation
+    queueMu sync.Mutex // Mutex for the queue field
+    queue   []string
 }
+
 func parseExpiry(expiry string) (int64, error) {
     unit := string(expiry[len(expiry)-1])
     duration := expiry[:len(expiry)-1]
@@ -109,22 +111,30 @@ func (d *datastore) qPush(key string, values ...string) error {
     return nil
 }
 
-func (d *datastore) qPop(key string) (string, bool) {
-    d.mu.Lock()
-    defer d.mu.Unlock()
+func (d *datastore) qPop(key string, valChan chan string, okChan chan bool) {
+    d.mu.RLock()
+    defer d.mu.RUnlock()
 
     if _, ok := d.data[key]; !ok {
-        return "", false
+        valChan <- ""
+        okChan <- false
+        return
     }
 
+    d.data[key].queueMu.Lock()
+    defer d.data[key].queueMu.Unlock()
+
     if len(d.data[key].queue) == 0 {
-        return "", false
+        valChan <- ""
+        okChan <- false
+        return
     }
 
     value := d.data[key].queue[0]
     d.data[key].queue = d.data[key].queue[1:]
 
-    return value, true
+    valChan <- value
+    okChan <- true
 }
 
 // getall
@@ -286,7 +296,7 @@ func main() {
 	})
 
     //qpop
-        http.HandleFunc("/qpop", func(w http.ResponseWriter, r *http.Request) {
+    http.HandleFunc("/qpop", func(w http.ResponseWriter, r *http.Request) {
         if r.Method != "POST" {
             w.WriteHeader(http.StatusMethodNotAllowed)
             return
@@ -310,15 +320,32 @@ func main() {
             return
         }
     
-        value, ok := data.qPop(req.Key)
-        if !ok {
-            w.WriteHeader(http.StatusNotFound)
-            fmt.Fprint(w, `{"error": "queue not found or empty"}`)
-            return
-        }
+        valChan := make(chan string)
+        okChan := make(chan bool)
+        go data.qPop(req.Key, valChan, okChan)
     
-        w.WriteHeader(http.StatusOK)
-        fmt.Fprintf(w, `{"value": "%s"}`, value)
+        select {
+        case value := <-valChan:
+            if value == "" {
+                w.WriteHeader(http.StatusNotFound)
+                fmt.Fprint(w, `{"error": "queue not found or empty"}`)
+                return
+            }
+            w.WriteHeader(http.StatusOK)
+            if ok:=<-okChan; !ok {
+                fmt.Fprint(w, `{"message": "queue is empty"}`)
+                return
+            }
+
+
+            fmt.Fprintf(w, `{"value": "%s"}`, value)
+        case ok := <-okChan:
+            if !ok {
+                w.WriteHeader(http.StatusNotFound)
+                fmt.Fprint(w, `{"error": "queue not found or empty"}`)
+                return
+            }
+        }
     })
 	// get all
 	http.HandleFunc("/getall", func(w http.ResponseWriter, r *http.Request) {

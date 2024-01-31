@@ -50,7 +50,7 @@ func (d *datastore) setValue(key, value string, expTime int64, isExists bool) er
         }
         return true
     })
-
+    d.logger.Infof("setValue - key: %s, value: %s", key, value)
     d.mu.Lock()
     defer d.mu.Unlock()
 
@@ -64,6 +64,7 @@ func (d *datastore) setValue(key, value string, expTime int64, isExists bool) er
     }
 
     d.data[key] = &dataValue{value: value, expTime: expTime, isExists: true}
+    d.logger.Infof("Set value: key=%s, value=%s, expTime=%d, isExists=%t", key, value, expTime, isExists)
     return nil
 }
 
@@ -138,5 +139,77 @@ func (d *datastore) getAll() map[string]string {
 			result[key] = value.value
 		}
     }
+    
     return result
+}
+
+
+func (ds *datastore) updateLRUCache(key, value string) {
+    if node, exists := ds.lruCacheMap[key]; exists {
+        // Move the existing node to the front
+        ds.moveNodeToFront(node)
+        node.value = value
+    } else {
+        // Create a new node and insert it at the front
+        newNode := &LRUCacheNode{
+            key:   key,
+            value: value,
+            prev:  nil,
+            next:  ds.lruCacheHead,
+        }
+        if ds.lruCacheHead != nil {
+            ds.lruCacheHead.prev = newNode
+        }
+        ds.lruCacheHead = newNode
+        ds.lruCacheMap[key] = newNode
+
+        // If the tail is nil, set it as the new node
+        if ds.lruCacheTail == nil {
+            ds.lruCacheTail = newNode
+        }
+
+        // Remove the tail node if the cache size exceeds the maximum allowed size (4 in this case)
+        if len(ds.lruCacheMap) > 4 {
+            ds.removeTailNode()
+        }
+    }
+}
+func (ds *datastore) moveNodeToFront(node *LRUCacheNode) {
+    if node == ds.lruCacheHead {
+        // Node is already at the front, no need to move
+        return
+    }
+
+    if node.prev != nil {
+        node.prev.next = node.next
+    }
+    if node.next != nil {
+        node.next.prev = node.prev
+    }
+
+    if node == ds.lruCacheTail {
+        ds.lruCacheTail = node.prev
+    }
+
+    node.prev = nil
+    node.next = ds.lruCacheHead
+    ds.lruCacheHead.prev = node
+    ds.lruCacheHead = node
+}
+
+func (ds *datastore) removeTailNode() {
+    if ds.lruCacheTail == nil {
+        // Empty cache, nothing to remove
+        return
+    }
+
+    delete(ds.lruCacheMap, ds.lruCacheTail.key)
+
+    if ds.lruCacheTail.prev != nil {
+        ds.lruCacheTail.prev.next = nil
+    } else {
+        ds.lruCacheHead = nil // Tail and Head are the same node
+    }
+
+    ds.lruCacheTail = ds.lruCacheTail.prev
 }

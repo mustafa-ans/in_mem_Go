@@ -1,12 +1,18 @@
 package main
 
-import "sync"
+import (
+    "sync"
+    "github.com/sirupsen/logrus")
 
 type datastore struct {
     data map[string]*dataValue
     mu   sync.RWMutex
     maxSizeBytes int // Maximum size
     sizeBytes    int // Current size
+    logger *logrus.Logger
+    lruCacheHead *LRUCacheNode
+    lruCacheTail *LRUCacheNode
+    lruCacheMap  map[string]*LRUCacheNode
 }
 
 type dataValue struct {
@@ -15,4 +21,11 @@ type dataValue struct {
     isExists bool  // Used to check existence of key for conditional set operation
     queueMu sync.Mutex // Mutex for the queue field
     queue   []string
+}
+
+type LRUCacheNode struct {
+    key   string
+    value string
+    prev  *LRUCacheNode
+    next  *LRUCacheNode
 }

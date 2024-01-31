@@ -1,0 +1,134 @@
+{
+	"info": {
+		"_postman_id": "d88dc63a-69a9-414f-9de6-f52689e33742",
+		"name": "go_in_mem",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "23080300"
+	},
+	"item": [
+		{
+			"name": "Get key",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8080/get?key=4",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"get"
+					],
+					"query": [
+						{
+							"key": "key",
+							"value": "4"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Set",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"command\": \"4 value4 EX 222S \"\r\n}\r\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8080/set",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"set"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get all",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:8080/getall",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"getall"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "qpush",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"command\": \"QPUSH\",\r\n    \"args\": [\"myqueue\", \"value1\", \"value2\", \"value333\"]\r\n}\r\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8080/qpush",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"qpush"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "qpop",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"command\": \"QPOP\",\r\n    \"key\": \"myqueue\"\r\n}\r\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8080/qpop",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"qpop"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

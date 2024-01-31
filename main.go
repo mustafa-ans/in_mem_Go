@@ -20,6 +20,11 @@ func main() {
 
 	data.logger.SetOutput(os.Stdout)
 
+	// handler for /
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "<h1>Hello from Go!</h1>")
+	})
+
 	http.HandleFunc("/set", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)

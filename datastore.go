@@ -26,8 +26,8 @@ type dataValue struct {
 }
 
 type LRUCacheNode struct {
-	key   string
-	value string
-	prev  *LRUCacheNode
-	next  *LRUCacheNode
+	// key   string
+	// value string
+	// prev  *LRUCacheNode
+	// next  *LRUCacheNode
 }

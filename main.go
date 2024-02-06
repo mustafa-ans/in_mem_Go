@@ -10,6 +10,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// test
+
 func main() {
 	data := &datastore{
 		data:         make(map[string]*dataValue),

@@ -10,8 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// test
-
 func main() {
 	data := &datastore{
 		data:         make(map[string]*dataValue),
@@ -20,7 +18,6 @@ func main() {
 
 	data.logger.SetOutput(os.Stdout)
 
-	// handler for /
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "<h1>Hello from Go!</h1>")
 	})

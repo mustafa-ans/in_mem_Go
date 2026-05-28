@@ -10,233 +10,199 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// test
-
 func main() {
-	data := &datastore{
-		data:         make(map[string]*dataValue),
-		maxSizeBytes: 256 * 1024,
-		logger:       logrus.New()}
-
-	data.logger.SetOutput(os.Stdout)
+	logger := logrus.New()
+	logger.SetOutput(os.Stdout)
+	data := newDatastore(logger)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "<h1>Hello from Go!</h1>")
+		fmt.Fprint(w, "<h1>Hello from Go!</h1>")
 	})
 
+	// /set stores a key. Body: {"command": "<key> <value> [EX <n><unit>] [NX|XX]"}
 	http.HandleFunc("/set", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
 		var req struct {
-			Command string `json:"command"` //struct tag
+			Command string `json:"command"` // struct tag maps JSON "command" -> Command
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
 		parts := strings.Fields(req.Command)
 		if len(parts) < 2 {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"error": "invalid command"}`)
+			writeError(w, http.StatusBadRequest, "invalid command")
 			return
 		}
 
 		key := parts[0]
 		value := parts[1]
 		var expTime int64
-		var isExists bool
+		var condition string // "", "NX", or "XX"
 
 		for i := 2; i < len(parts); i++ {
-			if parts[i] == "EX" {
+			switch strings.ToUpper(parts[i]) {
+			case "EX":
 				if i+1 >= len(parts) {
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprint(w, `{"error": "invalid command"}`)
+					writeError(w, http.StatusBadRequest, "invalid command")
 					return
 				}
-				var err error
-				expTime, err = parseExpiry(parts[i+1])
+				exp, err := parseExpiry(parts[i+1])
 				if err != nil {
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
+					writeError(w, http.StatusBadRequest, err.Error())
 					return
 				}
-				i++
-			} else if parts[i] == "NX" {
-				isExists = false
-			} else if parts[i] == "XX" {
-				isExists = true
-			} else {
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, `{"error": "invalid command"}`)
+				expTime = exp
+				i++ // skip the value we just consumed
+			case "NX":
+				condition = "NX"
+			case "XX":
+				condition = "XX"
+			default:
+				writeError(w, http.StatusBadRequest, "invalid command")
 				return
 			}
 		}
 
-		err := data.setValue(key, value, expTime, isExists)
-		if err != nil {
-			if strings.HasPrefix(err.Error(), "key already exists") {
-				w.WriteHeader(http.StatusConflict)
-			} else if strings.HasPrefix(err.Error(), "invalid expiry time") {
-				w.WriteHeader(http.StatusBadRequest)
-			} else {
-				w.WriteHeader(http.StatusInternalServerError)
+		if err := data.setValue(key, value, expTime, condition); err != nil {
+			switch {
+			case strings.HasPrefix(err.Error(), "key already exists"):
+				writeError(w, http.StatusConflict, err.Error())
+			case strings.HasPrefix(err.Error(), "key does not exist"):
+				writeError(w, http.StatusNotFound, err.Error())
+			case strings.HasPrefix(err.Error(), "invalid expiry"):
+				writeError(w, http.StatusBadRequest, err.Error())
+			default:
+				writeError(w, http.StatusInternalServerError, err.Error())
 			}
-			fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
 			return
 		}
 
-		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintf(w, `{"message": "key set successfully"}`)
+		writeJSON(w, http.StatusCreated, map[string]string{"message": "key set successfully"})
 	})
 
+	// /get?key=<key> returns the value for a key.
 	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
+		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
 		key := r.URL.Query().Get("key")
 		if key == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"error": "key parameter not found in query string"}`)
+			writeError(w, http.StatusBadRequest, "key parameter not found in query string")
 			return
 		}
 
 		value, err := data.getValue(key)
 		if err != nil {
 			if strings.HasPrefix(err.Error(), "key not found") {
-				w.WriteHeader(http.StatusNotFound)
+				writeError(w, http.StatusNotFound, err.Error())
 			} else {
-				w.WriteHeader(http.StatusInternalServerError)
+				writeError(w, http.StatusInternalServerError, err.Error())
 			}
-			fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"value": "%s"}`, value)
+		writeJSON(w, http.StatusOK, map[string]string{"value": value})
 	})
 
+	// /qpush appends to a queue. Body: {"command": "QPUSH", "args": ["<key>", "v1", "v2", ...]}
 	http.HandleFunc("/qpush", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
-		type Command struct {
+		var req struct {
 			Cmd  string   `json:"command"`
 			Args []string `json:"args"`
 		}
-
-		var req Command
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
 		if req.Cmd != "QPUSH" {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"error": "invalid command"}`)
+			writeError(w, http.StatusBadRequest, "invalid command")
 			return
 		}
-
 		if len(req.Args) < 2 {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"error": "invalid command"}`)
+			writeError(w, http.StatusBadRequest, "invalid command")
 			return
 		}
 
 		key := req.Args[0]
 		values := req.Args[1:]
-
 		if err := data.qPush(key, values...); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
+			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"message": "values added to queue"}`)
+		writeJSON(w, http.StatusOK, map[string]string{"message": "values added to queue"})
 	})
 
-	//qpop
+	// /qpop removes and returns the front of a queue. Body: {"command": "QPOP", "key": "<key>"}
 	http.HandleFunc("/qpop", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
-		type Command struct {
+		var req struct {
 			Cmd string `json:"command"`
 			Key string `json:"key"`
 		}
-
-		var req Command
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
 		if req.Cmd != "QPOP" {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"error": "invalid command"}`)
+			writeError(w, http.StatusBadRequest, "invalid command")
 			return
 		}
 
-		valChan := make(chan string)
-		okChan := make(chan bool)
-		go data.qPop(req.Key, valChan, okChan)
-
-		select {
-		case value := <-valChan:
-			if value == "" {
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, `{"error": "queue not found or empty"}`)
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			if ok := <-okChan; !ok {
-				fmt.Fprint(w, `{"message": "queue is empty"}`)
-				return
-			}
-
-			fmt.Fprintf(w, `{"value": "%s"}`, value)
-		case ok := <-okChan:
-			if !ok {
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, `{"error": "queue not found or empty"}`)
-				return
-			}
+		value, ok := data.qPop(req.Key)
+		if !ok {
+			writeError(w, http.StatusNotFound, "queue not found or empty")
+			return
 		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"value": value})
 	})
-	// get all
+
+	// /getall returns every live (non-expired) key.
 	http.HandleFunc("/getall", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
+		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
-		allData := data.getAll()
-		jsonData, err := json.Marshal(allData)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintf(w, `{"error": "%s"}`, err.Error())
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(jsonData)
+		writeJSON(w, http.StatusOK, data.getAll())
 	})
 
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		panic(err)
 	}
+}
+
+// writeJSON marshals payload with encoding/json so all values are correctly
+// escaped, sets the content type, and writes the status. This replaces the old
+// hand-built `fmt.Fprintf(w, `{"value": "%s"}`, ...)` responses, which produced
+// invalid JSON (and an injection vector) whenever a value contained a quote.
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// writeError is a small convenience wrapper for {"error": "..."} responses.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
 }

@@ -1,85 +1,100 @@
-# README
+# in_mem_Go
 
-This is a key-value datastore API written in Go that can be interacted with using Postman. The API supports the following endpoints:
+A small Redis-style in-memory key-value datastore written in Go and exposed over
+HTTP. It supports TTL-based expiration, conditional set operations (NX / XX), and
+FIFO queues (QPUSH / QPOP). The store is safe for concurrent use.
 
-    /set: Sets a key-value pair in the datastore with optional parameters for expiration and conditional operations (NX, XX).
-    /get: Retrieves the value associated with a given key.
-    /qpush: Pushes one or more values onto the end of a queue associated with a given key.
-    /getall: Retrieves all non-expired key-value pairs in the datastore.
+## Running
 
-## Usage
+```sh
+go run .
+```
 
-    Clone the repository and navigate to the project directory.
-    Run the API using the go run command: go run main.go
-    Open Postman and import the datastore.postman_collection.json file.
-    Send requests to the desired endpoint by selecting it from the Postman collection.
+The server listens on `:8080`. Import `go_in_mem.postman_collection.json` into
+Postman to try the endpoints, or use `curl` (examples below).
 
-## Endpoint Details
-/set
+## Endpoints
 
-    Method: POST
-    Request body format: {"command": "<key> <value> [EX <expiry>] [NX|XX]"} where key is the name of the key, value is the value to be associated with the key, expiry is an optional parameter to specify the time-to-live (TTL) for the key-value pair, and NX or XX are optional parameters to perform a conditional set operation (NX = only set the key if it does not already exist, XX = only set the key if it already exists).
-    Response body format (successful operation): {"message": "OK"}
-    Response status codes: 200 (successful operation), 400 (invalid command), 409 (key already exists), 500 (internal server error)
+### `POST /set`
 
-## /get
+Stores a key. The body carries a single space-delimited `command` string:
 
-    Method: GET
-    Request URL format: /get?key=<key>
-    Response body format (successful operation): {"value": "<value>"} where value is the value associated with the key.
-    Response status codes: 200 (successful operation), 400 (invalid key), 404 (key not found), 500 (internal server error)
+```json
+{ "command": "<key> <value> [EX <n><unit>] [NX|XX]" }
+```
 
-## /qpush
+- `EX <n><unit>` — optional TTL. Unit is `S`, `M`, `H`, or `D` (e.g. `EX 10M` = 10 minutes).
+- `NX` — only set if the key does **not** already exist.
+- `XX` — only set if the key **does** already exist.
 
-    Method: POST
-    Request body format: {"command": "<key> <value1> [<value2> ...]"} where key is the name of the key, and value1, value2, etc. are the values to be pushed onto the queue associated with the key.
-    Response body format (successful operation): {"message": "OK"}
-    Response status codes: 200 (successful operation), 400 (invalid command), 500 (internal server error)
+Status codes: `201` set, `400` invalid command / expiry, `404` `XX` on a missing
+key, `409` `NX` on an existing key, `500` internal error.
 
+```sh
+curl -X POST localhost:8080/set -d '{"command": "user1 alice EX 10M NX"}'
+```
 
+### `GET /get?key=<key>`
 
-## /getall
+Returns `{"value": "<value>"}`. Status codes: `200` ok, `400` missing `key`
+param, `404` key not found or expired.
 
-    Method: GET
-    Request URL format: /getall
-    Response body format (successful operation): {"<key>": "<value>", "<key>": "<value>", ...} where <key> is the name of the key and <value> is the value associated with the key.
-    Response status codes: 200 (successful operation), 500 (internal server error)
+```sh
+curl 'localhost:8080/get?key=user1'
+```
 
-### To use the code in Go with Postman, you can use the following request bodies for each endpoint:
+### `POST /qpush`
 
-    /set - POST
+Appends one or more values to the queue at `<key>`:
 
-    {
-    "command": "key value"
-    }
+```json
+{ "command": "QPUSH", "args": ["<key>", "v1", "v2", "v3"] }
+```
 
-    You can also include optional parameters to set the expiration time and check if the key already exists:
+Status codes: `200` ok, `400` invalid command, `500` internal error.
 
-    {
-    "command": "key value EX 10M NX"
-    }
-        EX: Sets the expiration time. In this example, the key will expire after 10 minutes.
-        NX: Only sets the value if the key does not exist.
+```sh
+curl -X POST localhost:8080/qpush -d '{"command":"QPUSH","args":["jobs","a","b"]}'
+```
 
-    /get - GET
+### `POST /qpop`
 
-    To get the value of a specific key:
+Removes and returns the **front** of the queue (FIFO):
 
-    http://localhost:8080/get?key=key
+```json
+{ "command": "QPOP", "key": "<key>" }
+```
 
-    /qpush - POST
+Status codes: `200` `{"value": "<value>"}`, `404` queue missing or empty.
 
-    {
-    "key": "key",
-    "values": ["value1", "value2", "value3"]
-    }
+```sh
+curl -X POST localhost:8080/qpop -d '{"command":"QPOP","key":"jobs"}'
+```
 
-    /getall - GET
+### `GET /getall`
 
-    To get all key-value pairs:
+Returns every **live (non-expired)** key as a JSON object. Queue keys are joined
+with `, `. Status codes: `200` ok, `500` internal error.
 
-    http://localhost:8080/getall
+```sh
+curl localhost:8080/getall
+```
 
-    To get all key-value pairs that have not expired:
+## Testing
 
-    http://localhost:8080/getall?exp=true
+```sh
+go test ./...          # unit tests
+go test -race ./...    # unit tests under the race detector
+go test -bench=. ./... # QPUSH benchmarks
+```
+
+## Design notes
+
+- `datastore` holds a `map[string]*dataValue` guarded by a `sync.RWMutex`.
+- Each `dataValue` has its own `sync.Mutex` (`queueMu`) guarding its queue slice,
+  so pops on different queues do not contend.
+- `value` / `expTime` are immutable once a `*dataValue` is created, so reads only
+  need a read lock.
+- Expiration is **lazy**: an expired key is removed when it is next accessed
+  (`/get`) or filtered out by `/getall`. There is no background sweeper.
+- Lock ordering is always `mu -> queueMu`, which keeps the store deadlock-free.
